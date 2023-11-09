@@ -411,7 +411,76 @@ Create Table EDW.fact_Absent_Analysis
 	constraint EDW_absentanalysis_sk primary key (AbsentSk),
 	constraint EDW_Absent_StoreSK foreign key (StoreSk) references EDW.DimStore(StoreSk),
 	constraint EDW_ABsent_EmployeeSk foreign Key (EmployeeSk) references EDW.DimEmployee(EmployeeSk),
-	constraint EDW_absent_datesk foreign key (absent_datesk) references EDW.dimdate(datesk)
+	constraint EDW_absent_datesk foreign key (absent_datesk) references EDW.dimdate(datesk),
+	constraint EDW_absent_categorysk foreign key (absent_categorysk) references EDW.dimAbsence(categorySk)
+	)
+	drop table edw.fact_Absent_Analysis
+	---26/03/2023 - 2:35
+
+
+----Misconduct Analysis ----
+
+use TescaStaging
+
+Create Table Staging.Misconduct_Analysis(
+	MisconSk bigint identity(1,1),
+	Empid int,
+	StoreID int,
+	Misconduct_date date,
+	Misconduct_id int,
+	Decision_id int,
+	LoadDate datetime default getdate(),
+	constraint staging_misconSk_pk primary key (misconSk)
 	)
 
-	---26/03/2023 - 2:35
+	--Source Count is taken care of by the TEL
+	--DesCount Count---
+
+SELECT Count(*) as DesCount from staging.Misconduct_Analysis
+
+--To get the last entry as the correct data to keep
+		SELECT MAX(misconSk) MisconSk, EmpID, StoreId, Misconduct_date, misconduct_id, decision_id
+		from staging.misconduct_analysis
+		Group By EmpID, StoreId, Misconduct_date, misconduct_id, decision_id
+
+
+---SELECT THE LAST RECORD FROM STAGING
+		SELECT MisconSk, EmpID, StoreId, Misconduct_date, misconduct_id, decision_id
+		from staging.misconduct_analysis where misconsk in 
+		(
+		SELECT MAX(misconSk) from staging.misconduct_analysis
+		Group By EmpID, StoreId, Misconduct_date, misconduct_id, decision_id
+		) 
+
+
+		SELECT COUNT (*) AS CURRENTCOUNT
+		FROM staging.misconduct_analysis where misconsk in 
+		(
+		SELECT MAX(misconSk) from staging.misconduct_analysis
+		Group By EmpID, StoreId, Misconduct_date, misconduct_id, decision_id
+		) 
+
+		-----EDW Misconduct 
+		--This is a factless fact table (read more on this)
+		USE TescaEDW
+
+Create Table EDW.Fact_Misconduct_Analysis (
+	MisconSk bigint identity(1,1),
+	EmployeeSk int,
+	StoreSk int,
+	Misconduct_datesk int,
+	Misconductid_Sk int,
+	Decisionid_sk int,
+	LoadDate datetime default getdate(),
+	constraint EDW_misconSk_sk primary key (misconSk),
+	constraint EDW_Misconduct_employee_Sk foreign key(employeeSk) references edw.dimEmployee(employeeSk),
+	constraint EDW_misconduct_store_sk foreign key(storesk) references edw.dimstore(storesk),
+	constraint edw_misconduct_Date_sk foreign key(misconduct_datesk) references edw.dimdate(datesk),
+	constraint edw_misconduct_misconduct_sk foreign key(misconductid_sk) references edw.dimmisconduct(MisconductSk),
+	constraint edw_misconduct_decision_sk foreign key(decisionid_sk) references edw.dimDecision(DecisionSk)
+	)
+
+	--constraint schemaname_businessprocess_column foreign key(column) references schemaname.dimensiontable(primary key column)
+	select count(*) as PreCount from EDW.Fact_Misconduct_Analysis
+
+--01/04/2023 - 1:15:37
