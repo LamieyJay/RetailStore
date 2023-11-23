@@ -36,11 +36,11 @@ IF (SELECT COUNT(*) FROM TescaEDW.EDW.Fact_SalesAnalysis) <= 0
 		S.Quantity, 
 		S.TaxAmount, 
 		S.LineAmount, 
-		s.linediscountamount 
-		FROM SalesTransaction S WHERE convert(Date, TransDate) <= DATEADD(day, -1, convert(date, getdate())) ---- Run this first to load ALL records from before today
-
+		s.linediscountamount,
+		getdate() as LoadDate
+		FROM SalesTransaction S WHERE convert(Date, TransDate) <= DATEADD(day, -1, convert(date, getdate())) 
+		---- Run this first to load ALL records from before today
 ELSE
-	
 	SELECT 
 		s.TransactionID,
 		s.TransactionNO,
@@ -58,8 +58,10 @@ ELSE
 		S.Quantity, 
 		S.TaxAmount, 
 		S.LineAmount, 
-		s.linediscountamount 
-	FROM SalesTransaction S WHERE convert(Date, TransDate) = DATEADD(day, -1, convert(date, getdate())) ----Run this daily after to run only the records from the previous day (N-1 data)
+		s.linediscountamount,
+		getdate() as LoadDate
+	FROM SalesTransaction S WHERE convert(Date, TransDate) = DATEADD(day, -1, convert(date, getdate())) 
+	----Run this daily after to run only the records from the previous day (N-1 data)
 
 SELECT DATEADD(day, -1, getdate())
 
@@ -95,6 +97,7 @@ CREATE TABLE staging.SalesAnalysis(
 	constraint staging_SalesAnalysis_pk primary key (TransactionID)
 )
 
+SELECT * FROM sTAGING.SalesAnalysis
 select count (*) as DesCount from staging.SalesAnalysis
 Truncate Table staging.SalesAnalysis
 
@@ -151,8 +154,7 @@ Create Table EDW.fact_salesAnalysis (
 	USE TescaOLTP
 
 	--Run query for data where TransDate is less than today
-IF (SELECT count(*) from TescaEDW.Fact_PurchaseAnalysis) <= 0
-
+IF (SELECT count(*) from TescaEDW.EDW.Fact_PurchaseAnalysis) <= 0
 	SELECT 
 	P.TransactionID, 
 	P.TransactionNo, 
@@ -170,7 +172,6 @@ IF (SELECT count(*) from TescaEDW.Fact_PurchaseAnalysis) <= 0
 	getdate() as LoadDate
 	FROM PurchaseTransaction P
 	WHERE Convert(date, p.TransDate) <= dateadd(day, -1, convert(date,getdate()))
-	
 	--Run query for data where TransDate is yesterday if there's already data in the DWH
 ELSE
 	SELECT 
@@ -201,7 +202,7 @@ WHERE Convert(date, p.TransDate) = dateadd(day, -1, convert(date,getdate()))
 
 
 ------Staging PurchaseAnalysis
-
+SELECT * FROM Staging.purchaseAnalysis
 Use TescaStaging
 
 select count(*) as DesCount from staging.PurchaseAnalysis  
@@ -309,7 +310,9 @@ Select count (*) CurrentCount from
 ----Fact table------
 use TescaEDW
 
-Create Table Fact_OvertimeAnalysis (
+Select count(*) as EDWCount from EDW.fact_overtimeAnalysis
+
+Create Table EDW.Fact_OvertimeAnalysis (
 	OvertimeSk bigint identity(1,1),
 	OvertimeID int,
 	EmployeeSk int,
@@ -327,6 +330,7 @@ Create Table Fact_OvertimeAnalysis (
 	constraint EDW_overtime_EndhourSk foreign key (EndHourSk) references EDW.DimTime(timeSk)
 	)
 
+	Drop table fact_overtimeanalysis
 
 ------Absence Analysis ------
 --first entry for the day is the record to be retained. i.e min, when grouped by all data.
@@ -344,8 +348,11 @@ Create Table Fact_OvertimeAnalysis (
 	Absent_Date date,
 	Absent_hour int,
 	Absent_category int,
+	LoadDate datetime default getdate(),
 	constraint staging_absent_pk primary key (AbsentSk)
 	)
+
+	SELECT * FROM STaging.Absent_Analysis
 
 	SELECT COUNT(*) DesCount from Staging.Absent_Analysis
 	Truncate table Staging.absent_analysis
@@ -397,6 +404,7 @@ Create Table Fact_OvertimeAnalysis (
 		group by empid, store, absent_date, absent_category
 		 )
 
+		 SELECT COUNT(*) AS edwCount from EDW.Fact_Absent_Analysis 
 ----Absent EDW 
 USE TescaEDW
 
@@ -433,10 +441,14 @@ Create Table Staging.Misconduct_Analysis(
 	constraint staging_misconSk_pk primary key (misconSk)
 	)
 
+	SELECT Count(*) AS edwCount from EDW.Fact_misconduct_Analysis
+
+	SELECT * FROM STaging.Misconduct_Analysis
 	--Source Count is taken care of by the TEL
 	--DesCount Count---
 
 SELECT Count(*) as DesCount from staging.Misconduct_Analysis
+TRUNCATE TABLE Staging.Misconduct_Analysis
 
 --To get the last entry as the correct data to keep
 		SELECT MAX(misconSk) MisconSk, EmpID, StoreId, Misconduct_date, misconduct_id, decision_id
@@ -484,3 +496,4 @@ Create Table EDW.Fact_Misconduct_Analysis (
 	select count(*) as PreCount from EDW.Fact_Misconduct_Analysis
 
 --01/04/2023 - 1:15:37
+
