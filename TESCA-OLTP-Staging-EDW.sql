@@ -16,7 +16,7 @@ USE TescaStaging
 CREATE TABLE staging.product (
 	ProductID int,
 	Product nvarchar(50),
-	ProductNumber int,
+	ProductNumber nvarchar(50),
 	UnitPrice float, 
 	Department nvarchar(50),
 	LoadDate datetime default getdate(),
@@ -24,36 +24,47 @@ CREATE TABLE staging.product (
 )
 
 SELECT COUNT(*) as DesCount FROM Staging.product 
-DROP TABLE Staging.Product 
+DROP TABLE STaging.product
+TRUNCATE TABLE Staging.Product 
+
+SELECT * FROM Staging.product
  
 --Pick the following data from the Staging to the EDW
 SELECT Productid, product, productnumber, unitprice, department FROM Staging.Product
---precount, currentcount, type1count, type2count
+--precount, currentcount, type1count, type2count, postcount
 
 --Product EDW
 USE TescaEDW
+
+SELECT COUNT(*) AS PreCount from EDW.DimProduct
+
 CREATE TABLE EDW.DimProduct (
 	ProductSK int Identity(1,1),
 	ProductID int,
 	Product nvarchar(50),
-	ProductNumber int,
+	ProductNumber nvarchar(50),
 	UnitPrice float, 
 	Department nvarchar(50),
 	EffectiveStartDate datetime,
 	EffectiveEndDate datetime
 	constraint edw_dimproduct_sk primary key (productsk)
 )
-DROP TABLE EDW.DimProduct
+--DROP TABLE EDW.DimProduct
+
+ALTER TABLE EDW.DimProduct
+ALTER COLUMN ProductNumber nvarchar(50)
+
+SELECT * FROM EDW.DimProduct
 
 
 
 --------------Promotion staging to OLTP 
 USE TescaOLTP
 
-SELECT p.promotionID, T.PROMOTION, P.Startdate, p.enddate, p.discountpercent from promotion p
+SELECT p.PromotionID, T.Promotion, P.Startdate, p.EndDate, p.DiscountPercent, getdate() LoadDate from promotion p
 inner join promotiontype t on p.promotiontypeid = t.PromotionTypeID
 
-select count (*) from promotion p
+select count (*) as SourceCount from promotion p
 inner join PromotionType t on p.PromotionTypeID=t.PromotionTYPEID
 
 --Promotion staging
@@ -70,9 +81,14 @@ Create Table Staging.promotion
 )
 truncate table staging.promotion
 
+
 --Promotion EDW
 SELECT count (*) DesCount from staging.promotion
 Select  PromotionID, Promotion, StartDate, EndDate, discountpercent FROM STAGING.PROMOTION
+
+SELECT COUNT(*) PreCount FROM EDW.DimPromotion
+SELECT COUNT(*) PostCount FROM EDW.DimPromotion
+
 
 USE TescaEDW
 Create Table EDW.DimPromotion 
@@ -87,12 +103,13 @@ Create Table EDW.DimPromotion
 	constraint edw_promotion_sk primary key (promotionsk)
 )
 SELECT Count(*) as PostCount from EDW.DimPromotion
+SELECT * FROM EDW.DimPromotion
 
 
 -----------Store OLTP to staging
 USE TescaOLTP
 
-Select s.storeID, S.StoreName, s.StreetAddress, c.CityName, st.State from store S
+Select s.storeID, S.StoreName, s.StreetAddress, c.CityName, st.State, getdate() as LoadDate from store S
 Inner join city c on s.CityID = c.CityID
 inner join state st on s.StateID = st.StateID
 
@@ -118,9 +135,15 @@ SELECT StoreID, StoreName, StreetAddress, CityName, State from staging.store
 select count (*) as Descount from Staging.store 
 truncate table Staging.Store
 
+use TESCAStaging
+select * from staging.store
+
 --Store EDW
 select count (*) as PreCount from EDW.DimStore???
 use TescaEDW
+
+
+--exec sp_rename 'EDW.DimStore.EfectiveStartDate', 'EffectiveStartDate'
 
 CREATE TABLE EDW.DimStore
 (
@@ -134,12 +157,14 @@ CREATE TABLE EDW.DimStore
 	constraint edw_dimstore_sk primary key (StoreSK)
 )
 SELECT Count(*) as PostCount from EDW.DimStore
+SELECT * FROM EDW.DimStore
 
 
 
 ------------ Customer OLTP to EDW
 USE TescaOLTP
-Select c.CustomerID, CONCAT(Upper(c.LastName),',',c.FirstName) as Customer, c.CustomerAddress, ct.CityName as City, s.State from Customer c
+Select c.CustomerID, CONCAT(Upper(c.LastName),',',c.FirstName) as Customer, c.CustomerAddress, ct.CityName as City, s.State, getdate() as LoadDate
+from Customer c
 inner join city ct on c.CityID=ct.CityID
 inner join state s on ct.StateID = s.StateID
 
@@ -153,7 +178,7 @@ USE TescaStaging
 CREATE TABLE Staging.Customer
 (
 	CustomerID int, 
-	Customer nvarchar(100), 
+	Customer nvarchar(250), 
 	CustomerAddress nvarchar(50), 
 	City nvarchar(50),
 	State nvarchar (50),
@@ -164,7 +189,8 @@ CREATE TABLE Staging.Customer
 select CustomerID, Customer, CustomerAddress, City, State from Staging.Customer
 SELECT COUNT(*) as DesCount from Staging.Customer
 
-Truncate table Staging.Customer
+Truncate table 
+select * from Staging.Customer
 
 --Customer EDW
 USE TescaEDW
@@ -172,7 +198,7 @@ Create Table EDW.DimCustomer
 (
 	CustomerSK int identity (1,1),
 	CustomerID int, 
-	Customer nvarchar(100), 
+	Customer nvarchar(250), 
 	CustomerAddress nvarchar(50), 
 	City nvarchar(50),
 	State nvarchar (50),
@@ -180,15 +206,19 @@ Create Table EDW.DimCustomer
 	constraint EDW_dimcustomer_sk primary key (CustomerSK)
 	)
 
-SELECT COUNT (*) as PreCount from EDW.DimCustomer
+ALTER TABLE EDW.DimCustomer
+ALTER COLUMN Customer nvarchar(250)
 
+SELECT COUNT (*) as PreCount from EDW.DimCustomer
 SELECT Count (*) as PostCount from EDW.DimCustomer
+
+SELECT * FROM EDW.DimCustomer
 
 
 ---------POSChannel from OLTP to EDW 
 USE TESCAOLTP
 --No need to denormalize, as it does not reference any other table in the OLTP system 
-Select P.ChannelID, P.ChannelNo, p.DeviceModel, p.SerialNo, p.InstallationDate from POSChannel P
+Select P.ChannelID, P.ChannelNo, p.DeviceModel, p.SerialNo, p.InstallationDate, getdate() as LoadDate from POSChannel P
 
 Select count(*) as SourceCount from POSChannel p
 
@@ -211,6 +241,8 @@ Truncate Table staging.POSChannel
 
 --POS Channel EDW
 USE TescaEDW
+SELECT ChannelID, ChannelNo, DeviceModel, SerialNo, InstallationDate FROM STaging.POSChannel
+
 CREATE TABLE EDW.DimPOSChannel
 (
 	ChannelSK int identity(1,1),
@@ -300,13 +332,12 @@ SELECT * FROM EDW.DimTime
 
 EXEC edw.DimTimeGenerator
 
-
 -----------------
 
 ----Denormalize Employee OLTP
 USE TESCAOLTP
 
-SELECT E.EmployeeID, E.EmployeeNo, CONCAT(UPPER(E.LastName),' ', E.FirstName) as Employee, E.DoB, M.MaritalStatus from Employee E
+SELECT E.EmployeeID, E.EmployeeNo, CONCAT(UPPER(E.LastName),' ', E.FirstName) as Employee, E.DoB, M.MaritalStatus, getdate() as LoadDate from Employee E
 INNER JOIN MaritalStatus M ON E.MaritalStatus = M.MaritalStatusID
 
 SELECT COUNT(*) AS SourceCount from Employee E
@@ -345,13 +376,14 @@ CREATE TABLE EDW.DimEmployee
 )
 
 SELECT COUNT(*) as PreCount FROM EDW.DimEmployee
+SELECT COUNT(*) as PostCount FROM EDW.DimEmployee
 
 --------Denormalize vendor OLTP
 
 use TescaOLTP
 
 SELECT V.VendorID, V.VendorNo, V.RegistrationNo, CONCAT(UPPER(V.LastName),' ', V.FirstName) AS Vendor, V.VendorAddress,
-C.CityName, S.State FROM Vendor V 
+C.CityName, S.State, getdate() as LoadDate FROM Vendor V 
 INNER JOIN City C ON V.CityID = C.CityID
 INNER JOIN STATE S ON C.StateID = S.StateID
 
@@ -382,6 +414,7 @@ select 	VendorID, VendorNo, Vendor, RegistrationNo ,VendorAddress, City, State f
 	SELECT Count(*) as descCount FROM Staging.vendor
 
 	TRUNCATE TABLE staging.vendor
+	select * from staging.vendor
 
 -------EDW Vendor 
 USE TescaEDW
@@ -404,6 +437,7 @@ DROP TABLE EDW.dimVENDOR
 select count (*) as PostCount from EDW.dimVendor
 SELECT COUNT (*) as PreCount from EDW.DimVendor
 
+SELECT * FROM EDW.DIMVENDOR
 
 ----- Misconduct 
 -----Source count from csv file
@@ -418,9 +452,15 @@ LoadDate datetime default getdate()
 select count(*) Descount from staging.misconduct
 truncate table staging.misconduct
 
+--Extract all data, including duplicates from the staging table. 
+select * from staging.misconduct
+
 --get rid of duplicates
-select count(*) as CurrentCount from staging.misconduct
-group by misconductid, misconductdesc
+select count(*) as CurrentCount from
+	(
+	Select misconductid, misconductdesc from staging.Misconduct
+	group by misconductid, misconductdesc
+	) M
 
 select misconductid, misconductdesc from staging.misconduct
 group by misconductid, misconductdesc
@@ -429,14 +469,22 @@ group by misconductid, misconductdesc
 USE TescaEDW
 CREATE TABLE EDW.DimMisconduct
 (
-	MisconductSK int,
+	MisconductSK int identity (1,1),
 	MisconductID int,
-	Misconduct nvarchar(255),
-	EffectivEStartDate datetime,
+	Misconductdesc nvarchar(255),
+	EffectiveStartDate datetime,
 	constraint edw_Dimmisconduct_sk primary key (MisconductSK)
 )
 
-SELECT COUNT(*) AS COUNT FROM EDW.DIMMISCONDUCT
+--Rename column name
+exec sp_rename 'EDW.DimMisconduct.EffectivEStartDate', 'EffectiveStartDate'
+
+-- To give an existing table identity values, you need to drop the table and recreate it.
+DROP TABLE EDW.DimMisconduct
+SELECT * FROM EDW.DIMMISCONDUCT
+
+SELECT COUNT(*) AS PreCOUNT FROM EDW.DIMMISCONDUCT
+SELECT COUNT(*) AS PostCOUNT FROM EDW.DIMMISCONDUCT
 
 ---------Denormalize staging Decision
 USE TescaStaging
@@ -446,15 +494,24 @@ Create Table Staging.decision
 	Decision nvarchar(255),
 	Loaddate datetime default getdate()
 )
+Truncate table Staging.decision
 
 SELECT count(*) DesCount from Staging.Decision
+select * from staging.decision
 
-SELECT Decision_id, DECISION FROM STAGING.Decision
+SELECT Decision_id, DECISION, getdate() EffectiveStartDate FROM STAGING.Decision
 group by decision_id, decision
 
+-- TWO WAYS TO GET THE COUNT OF ALL THE DATA LOADED INTO THE SATGING AREA W/O DUPLICATES
+		SELECT COUNT(*) AS CurrentCount FROM 
+			(
+			SELECT Decision_id, Decision from Staging.decision
+			group by decision_id, decision) d
 
-SELECT COUNT(*) AS CurrentCount FROM STAGING.Decision
-group by decision_id, decision
+		WITH Decision_CTE AS
+		(SELECT Decision_id, Decision from Staging.decision
+		group by decision_id, decision)
+		select count(*) from Decision_CTE
 
 ------------EDW Decision
 USE TescaEDW
@@ -479,9 +536,11 @@ USE TescaStaging
 CREATE TABLE Staging.Absence 
 (
 	categoryid int,
-	caegory nvarchar(255),
+	category nvarchar(255),
 	LoadDate datetime default getdate()
 )
+
+
 
 select count (*) as descount from staging.absence
 truncate table staging.absense

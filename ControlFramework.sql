@@ -90,7 +90,21 @@ Values
 
 
 
---drop table ctrl.Package
+Insert into ctrl.package(PackageID, PackageName, PackageTypeID, SequenceNo, EnvironmentID, FrequencyID, RunStartDate, Active)
+Values
+
+	/*(16, 'dimProduct.dtsx', 1, 100, 2, 1, convert(date, getdate()), 1)
+	(17, 'dimPromotion.dtsx', 1, 200, 2, 1, convert(date, getdate()), 1)
+	(18, 'dimStore.dtsx', 1, 300, 2, 1, convert(date, getdate()), 1)
+	(19, 'dimCustomer.dtsx', 1, 400, 2, 1, convert(date, getdate()), 1)
+	(20, 'dimPOSChannel.dtsx', 1, 500, 2, 1, convert(date, getdate()), 1)
+	(21, 'dimEmployee.dtsx', 1, 600, 2, 1, convert(date, getdate()), 1)
+	(22, 'dimVendor.dtsx', 1, 700, 2, 1, convert(date, getdate()), 1)
+	(23, 'dimMisconduct.dtsx', 1, 800, 2, 1, convert(date, getdate()), 1)*/
+	(24, 'dimDecision.dtsx', 1, 900, 2, 1, convert(date, getdate()), 1)
+
+
+--drop table ctrl.Package 
 --drop table ctrl.metrics
 
 
@@ -111,34 +125,106 @@ Create Table Ctrl.metrics
 	constraint ctrl_metrics_package_fk foreign key (PackageID) references ctrl.package(PackageID)
 )
 
-
+		--Staging mterics Script
 declare @PackageID int = ?
 declare @StgSourceCount int =?
 declare @StgDesCount int =?
 INSERT INTO CTRL.metrics (PackageID, StgSourceCount, StgDesCount, RunDate)
 values (@PackageID, @StgSourceCount, @StgDesCount, getdate())
-
 Update ctrl.package
 set LastRunDate=getdate() where packageid = @PackageID
 
 
+		---EDW metrics script
+declare @PackageID int =?
+declare @PreCount int = ?
+declare @CurrentCount int = ?
+declare @Type1Count int = ?
+declare @Type2Count int = ?
+declare @PostCount int = ?
 
-select * from ctrl.Package
+Insert into ctrl.metrics (PackageID, PreCount, CurrentCount, Type1Count, Type2Count, PostCount, RunDate)
+Values (@PackageID, @PreCount, @CurrentCount, @Type1Count, @Type2Count, @PostCount, getdate())
+Update ctrl.Package
+set LastRunDate=getdate() where PackageID = @PackageID
+
+
+ 
 Select * from ctrl.metrics
 SELECT * FROM ctrl.Frequency
+SELECT * FROM ctrl.Package
 	/*
 	Daily - runs everyday
 	Weekly - Runs at the en dof every week
 	Monthly - At the end of every month
 	Yearly - At the end of every year
 	*/
+		SELECT PackageID, PackageName, SequenceNo, FrequencyID FROM (
+					--These conditions must be true for my pipeline to run DAILY
+			SELECT PackageID, PackageName, SequenceNo, FrequencyID FROM CTRL.Package
+			Where (Active = 1 AND RunStartDate <= CONVERT(DATE, GETDATE()))
+			AND (RunEndDate IS NULL OR RunEndDate >= convert(date, getdate()))
+			AND EnvironmentID = 1 AND FrequencyID = 1
 
-			--These conditions must be true for my pipeline to run 
-		SELECT PackageID, PackageName, SequenceNo FROM CTRL.Package
-		Where (Active = 1 AND RunStartDate <= CONVERT(DATE, GETDATE()))
-		AND (RunEndDate IS NULL OR RunEndDate >= convert(date, getdate()))
-		AND EnvironmentID = 1
+			UNION ALL 
+					--Run the package WEEKLY.
+			SELECT PackageID, PackageName, SequenceNo, FrequencyID FROM CTRL.Package
+			Where (Active = 1 AND RunStartDate <= CONVERT(DATE, GETDATE()))
+			AND (RunEndDate IS NULL OR RunEndDate >= convert(date, getdate()))
+			AND EnvironmentID = 1 
+			AND FrequencyID = 2 
+			and DATEPART(WEEKDAY, DATEADD(DAY, -1, GETDATE())) = 7
+
+			UNION ALL 
+					--Run the package at the end of every month
+			SELECT PackageID, PackageName, SequenceNo, FrequencyID FROM CTRL.Package
+			Where (Active = 1 AND RunStartDate <= CONVERT(DATE, GETDATE()))
+			AND (RunEndDate IS NULL OR RunEndDate >= convert(date, getdate()))
+			AND EnvironmentID = 1 
+			AND FrequencyID = 3
+			AND EOMONTH(dateadd(day, -1, convert(date,getdate()))) = dateadd(day, -1, convert(date,getdate()))
+
+			UNION ALL
+			 ------Run the package at the end of the year.
+			SELECT PackageID, PackageName, SequenceNo, FrequencyID FROM CTRL.Package
+			Where (Active = 1 AND RunStartDate <= CONVERT(DATE, GETDATE()))
+			AND (RunEndDate IS NULL OR RunEndDate >= convert(date, getdate()))
+			AND EnvironmentID = 1                                                    
+			AND FrequencyID = 4 
+			AND EOMONTH(dateadd(day, -1, convert(date,getdate()))) = dateadd(day, -1, convert(date,getdate()))
+			AND DATEPART(MONTH, dateadd(day, -1, GETDATE()))  = 12
+		) RunPackage Order By FrequencyID, SequenceNo
+		
 
 
 
--- 04/15/2023 
+--Select the end of month date for the date given
+		SELECT EOMONTH('2024-12-01')
+--Select the end of month date for yesterday's date
+		SELECT EOMONTH(dateadd(day, -1, '2024-01-01'))
+--Select yesterday's date
+		SELECT dateadd(day, -1, convert(date,'2024-01-01'))
+--Select month for yesterday's date
+		SELECT DATEPART(MONTH, dateadd(day, -1, '2024-01-01'))
+
+
+/*If we run the weekly package by 12am on Sunday, we have to check if yesterday equals Saturday, because if we run it on Saturday ny 12am, 
+it'll run, not loading the data for that day. 
+This is why we run it at 12am on Sunday; checking yesterday.
+
+
+
+
+--4:44:31 - 4/15/2023
+
+
+
+
+
+
+
+
+
+		--SELECT EOMONTH(GETDATE())
+		--SELECT MONTH(GETDATE()) as Month
+		--SELECT DATEPART(MONTH, GETDATE())

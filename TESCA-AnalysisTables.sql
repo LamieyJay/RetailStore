@@ -495,5 +495,6 @@ Create Table EDW.Fact_Misconduct_Analysis (
 	--constraint schemaname_businessprocess_column foreign key(column) references schemaname.dimensiontable(primary key column)
 	select count(*) as PreCount from EDW.Fact_Misconduct_Analysis
 
---01/04/2023 - 1:15:37
 
+
+	DROP TABLE EDW.Fact_Misconduct_Analysis
