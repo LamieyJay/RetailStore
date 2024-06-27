@@ -1,4 +1,4 @@
-SELECT * FROM SalesTransaction
+ SELECT * FROM SalesTransaction
 order BY TransDATE DESC
 
 -----------------------------------------------------------------------------
@@ -67,7 +67,7 @@ SELECT DATEADD(day, -1, getdate())
 
 --Check PRE-count 
 
-IF (select count(*) FROM TescaEDW.EDW.Fact_SalesAnalysis) <=  0 
+IF (select count(*) FROM TescaEDW.EDW.FactSalesAnalysis) <=  0 
 	SELECT count (*) as SourceCount FROM SalesTransaction WHERE convert(Date, TransDate) <= DATEADD(day, -1, convert(date, getdate()))
 ELSE
 	SELECT count (*) as SourceCount FROM SalesTransaction WHERE convert(Date, TransDate) = DATEADD(day, -1, convert(date, getdate()))
@@ -78,7 +78,7 @@ USE TescaStaging
 CREATE TABLE staging.SalesAnalysis(
 	TransactionID int,
 	TransactionNo nvarchar(50),
-	TransDate datetime,
+	TransDate date,
 	TransHour int,
 	OrderDate date,
 	OrderHour int,
@@ -96,20 +96,26 @@ CREATE TABLE staging.SalesAnalysis(
 	LoadDate datetime default getdate(),
 	constraint staging_SalesAnalysis_pk primary key (TransactionID)
 )
+ 
 
-SELECT * FROM sTAGING.SalesAnalysis
+SELECT 	TransactionID,TransactionNo,TransDate,TransHour,OrderDate,OrderHour,DeliveryDate,ChannelID,CustomerID,
+EmployeeID,ProductID,StoreID,PromotionID,Quantity,TaxAmount,LineAmount,LineDiscountAmount, getdate() as LoadDate FROM Staging.SalesAnalysis
 select count (*) as DesCount from staging.SalesAnalysis
 Truncate Table staging.SalesAnalysis
 
-----EDW SalesAnalysis-----Fact Table----
+ALTER TABLE Staging.SalesAnalysis
+ALTER COLUMN TransDate date
+
+		----EDW SalesAnalysis---
+			--Fact Table----
 
 select count (*) as CurrentCount from staging.SalesAnalysis
 
 USE TescaEDW
 
-SELECT COUNT (*) AS PreCount from EDW.fact_salesAnalysis
+SELECT COUNT (*) AS PreCount from EDW.factSalesAnalysis
 
-Create Table EDW.fact_salesAnalysis (
+Create Table EDW.factSalesAnalysis (
 	SalesSk bigint identity (1,1),
 	TransactionNo nvarchar (50),
 	TransDateSk int,
@@ -129,6 +135,7 @@ Create Table EDW.fact_salesAnalysis (
 	LineDiscountAmount float,
 	LoadDate datetime default getdate(),
 	constraint EDW_salesAnalysis_SlesSk primary key (SalesSk),
+	--we have to lookup the business keys for each of the dimensions, to return the Surrogate keys for the fact table
 	constraint EDW_sales_Transdatesk foreign key (TransDateSk) references EDW.DimDate(DateSk),
 	constraint EDW_sales_Transhoursk foreign key (TransHourSk) references EDW.DimTime(TimeSk),
 	constraint EDW_sales_Orderdatesk foreign key (OrderDateSk) references EDW.DimDate(DateSk),
@@ -141,10 +148,10 @@ Create Table EDW.fact_salesAnalysis (
 	constraint EDW_sales_Storesk foreign key (StoreSk) references EDW.DimStore(StoreSk),
 	constraint EDW_sales_Promotionsk foreign key (PromotionSk) references EDW.DimPromotion(PromotionSk),
 )
-
+SELECT COUNT (*) AS PostCount from EDW.factSalesAnalysis
+SELECT * FROM EDW.factSalesAnalysis
 	SELECT * FROM TESCAEDW.EDW.DimTime
 	SELECT * FROM EDW.DimPromotion
-
 
 
 
@@ -229,8 +236,13 @@ SELECT COUNT(*) as CurrentCount from Staging.PurchaseAnalysis
 Truncate Table Staging.PurchaseAnalysis 
 
 -------EDW Purchase Analysis 
-USE TescaEDW
 
+USE TescaStaging
+SELECT P.TransactionID, P.TransactionNo, P.TransDate, P.OrderDate, P.DeliveryDate, P.VendorID, P.EmployeeID, P.ProductID,
+P.StoreID, P.DifferentialDays, P.Quantity, P.TaxAmount, P.LineAmount, getdate() as LoadDate FROM Staging.PurchaseAnalysis P
+
+
+USE TescaEDW
 Create Table EDW.Fact_PurchaseAnalysis(
 	PurchaseAnalysisSK bigint identity (1,1),
 	TransactionNo nvarchar(50),
@@ -257,7 +269,10 @@ Create Table EDW.Fact_PurchaseAnalysis(
 	)
 
 
-SELECT COUNT(*) as PreCount from EDW.Fact_PurchaseAnalysis
+SELECT COUNT(*) as PreCount from EDW.FactPurchaseAnalysis
+SELECT COUNT(*) as PostCount from EDW.FactPurchaseAnalysis
+
+exec sp_rename 'EDW.Fact_PurchaseAnalysis', 'FactPurchaseAnalysis'
 
 
 -------OVERTIME -------
@@ -286,33 +301,32 @@ SELECT Max(OvertimeID), EmployeeNo, FirstName, LastName, StartOvertime, EndOvert
 group by EmployeeNo, FirstName, LastName, StartOvertime, EndOvertime
 
 --Select from deduplicated data to move from Staging to EDW.
-Select 
-OvertimeID, 
-EmployeeNo, 
-CONVERT(date, StartOvertime) StartOvertimeDate, 
-DATEPART(hour, StartOvertime) StartOvertimeHour,
-CONVERT(Date, EndOvertime) EndOvertime,
-DATEPART(hour, EndOvertime) EndOvertimehour,
---DATEDIFF(hour, StartOvertime, EndOvertime) as OvertimeHour
-convert(float, DATEDIFF(Minute, StartOvertime, EndOvertime)/60)  as OvertimeHour
+Select OvertimeID, EmployeeNo, CONVERT(date, StartOvertime) StartOvertimeDate, DATEPART(hour, StartOvertime) StartOvertimeHour,
+CONVERT(Date, EndOvertime) EndOvertime, DATEPART(hour, EndOvertime) EndOvertimehour,
+convert(float, DATEDIFF(Minute, StartOvertime, EndOvertime)*1.0/60)  as OvertimeHours, LoadDate
 from (
-	SELECT Max(OvertimeID) OvertimeID, EmployeeNo, FirstName, LastName, StartOvertime, EndOvertime from Staging.Overtime
-	group by EmployeeNo, FirstName, LastName, StartOvertime, EndOvertime)
+	SELECT Max(OvertimeID) OvertimeID, EmployeeNo, FirstName, LastName, StartOvertime, EndOvertime, LoadDate from Staging.Overtime
+	group by EmployeeNo, FirstName, LastName, StartOvertime, EndOvertime, LoadDate
+	) a
 
 	 
 Select count (*) CurrentCount from 
 	(
-	SELECT Max(OvertimeID), EmployeeNo, FirstName, LastName, StartOvertime, EndOvertime from Staging.Overtime
+	SELECT Max(OvertimeID) OvertimeID, EmployeeNo, FirstName, LastName, StartOvertime, EndOvertime from Staging.Overtime
 	group by EmployeeNo, FirstName, LastName, StartOvertime, EndOvertime
-	)
+	) s
 
+
+select min(businessdate) from edw.dimdate
 
 ----Fact table------
 use TescaEDW
 
 Select count(*) as EDWCount from EDW.fact_overtimeAnalysis
+Select count(*) as PreCount from EDW.factovertimeAnalysis
+Select count(*) as PostCount from EDW.factovertimeAnalysis
 
-Create Table EDW.Fact_OvertimeAnalysis (
+Create Table EDW.FactOvertimeAnalysis (
 	OvertimeSk bigint identity(1,1),
 	OvertimeID int,
 	EmployeeSk int,
@@ -331,6 +345,9 @@ Create Table EDW.Fact_OvertimeAnalysis (
 	)
 
 	Drop table fact_overtimeanalysis
+	select * from edw.factovertimeanalysis
+	select * from staging.overtime order by startovertime
+	exec sp_rename 'EDW.Fact_OvertimeAnalysis', 'FactOvertimeAnalysis'
 
 ------Absence Analysis ------
 --first entry for the day is the record to be retained. i.e min, when grouped by all data.
@@ -380,10 +397,10 @@ Create Table EDW.Fact_OvertimeAnalysis (
 
 	--3. CTE with JOIN
 		WITH Deduplicatedata As (
-			SELECT min(absentsk) AbsentSk, from staging.Absent_Analysis
+			SELECT min(absentsk) AbsentSk from staging.Absent_Analysis
 			group by empid, Store, Absent_Date, Absent_Category
 			)
-			SELECT empid, Store, Absent_Date, Absent_hour, absent_category from staging.Absent_Analysis a
+			SELECT a.absentSk,  empid, Store, Absent_Date, Absent_hour, absent_category, getdate() as LoadDate from staging.Absent_Analysis a
 			inner join Deduplicatedata d on d.AbsentSk = a.AbsentSk
 
 	--4. TEMP Table and Join
@@ -404,11 +421,12 @@ Create Table EDW.Fact_OvertimeAnalysis (
 		group by empid, store, absent_date, absent_category
 		 )
 
-		 SELECT COUNT(*) AS edwCount from EDW.Fact_Absent_Analysis 
+		 SELECT COUNT(*) AS Precount from EDW.FactAbsenceAnalysis
+		 SELECT COUNT(*) AS PostCount from EDW.FactAbsenceAnalysis
 ----Absent EDW 
 USE TescaEDW
 
-Create Table EDW.fact_Absent_Analysis
+Create Table EDW.FactAbsenceAnalysis
 (
 	AbsentSk bigint identity(1,1),
 	employeeSk int,
@@ -422,7 +440,10 @@ Create Table EDW.fact_Absent_Analysis
 	constraint EDW_absent_datesk foreign key (absent_datesk) references EDW.dimdate(datesk),
 	constraint EDW_absent_categorysk foreign key (absent_categorysk) references EDW.dimAbsence(categorySk)
 	)
-	drop table edw.fact_Absent_Analysis
+
+	exec sp_rename 'EDW.factAbsentAnalysis', 'FactAbsenceAnalysis'
+	drop table edw.FactAbsenceAnalysis
+	Trunca
 	---26/03/2023 - 2:35
 
 
@@ -441,7 +462,8 @@ Create Table Staging.Misconduct_Analysis(
 	constraint staging_misconSk_pk primary key (misconSk)
 	)
 
-	SELECT Count(*) AS edwCount from EDW.Fact_misconduct_Analysis
+	SELECT Count(*) AS PreCount from EDW.FactMisconductAnalysis
+	SELECT Count(*) AS PostCount from EDW.FactMisconductAnalysis
 
 	SELECT * FROM STaging.Misconduct_Analysis
 	--Source Count is taken care of by the TEL
@@ -457,7 +479,7 @@ TRUNCATE TABLE Staging.Misconduct_Analysis
 
 
 ---SELECT THE LAST RECORD FROM STAGING
-		SELECT MisconSk, EmpID, StoreId, Misconduct_date, misconduct_id, decision_id
+		SELECT MisconSk, EmpID, StoreId, Misconduct_date, misconduct_id, decision_id, getdate() as LoadDate
 		from staging.misconduct_analysis where misconsk in 
 		(
 		SELECT MAX(misconSk) from staging.misconduct_analysis
@@ -476,7 +498,7 @@ TRUNCATE TABLE Staging.Misconduct_Analysis
 		--This is a factless fact table (read more on this)
 		USE TescaEDW
 
-Create Table EDW.Fact_Misconduct_Analysis (
+Create Table EDW.FactMisconductAnalysis (
 	MisconSk bigint identity(1,1),
 	EmployeeSk int,
 	StoreSk int,
@@ -493,8 +515,8 @@ Create Table EDW.Fact_Misconduct_Analysis (
 	)
 
 	--constraint schemaname_businessprocess_column foreign key(column) references schemaname.dimensiontable(primary key column)
-	select count(*) as PreCount from EDW.Fact_Misconduct_Analysis
 
 
+	exec sp_rename 'EDW.Fact_Misconduct_Analysis', 'FactMisconductAnalysis'
 
 	DROP TABLE EDW.Fact_Misconduct_Analysis

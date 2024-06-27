@@ -499,10 +499,11 @@ Truncate table Staging.decision
 SELECT count(*) DesCount from Staging.Decision
 select * from staging.decision
 
-SELECT Decision_id, DECISION, getdate() EffectiveStartDate FROM STAGING.Decision
+SELECT Decision_id, DECISION, getdate() EffectiveStartDate 
+FROM STAGING.Decision
 group by decision_id, decision
 
--- TWO WAYS TO GET THE COUNT OF ALL THE DATA LOADED INTO THE SATGING AREA W/O DUPLICATES
+-- TWO WAYS TO GET THE COUNT OF ALL THE DATA LOADED INTO THE STAGING AREA W/O DUPLICATES
 		SELECT COUNT(*) AS CurrentCount FROM 
 			(
 			SELECT Decision_id, Decision from Staging.decision
@@ -511,7 +512,15 @@ group by decision_id, decision
 		WITH Decision_CTE AS
 		(SELECT Decision_id, Decision from Staging.decision
 		group by decision_id, decision)
-		select count(*) from Decision_CTE
+		select count(*) CurrentCount from Decision_CTE
+
+		--SELECT DATE FROM STAGING TABLE INTO EDW
+		WITH Decision_CTE AS
+		(SELECT Decision_id, Decision from Staging.decision
+		group by decision_id, decision)
+		select decision_id, decision, getdate() as EffectiveStartDate from Decision_CTE
+
+		SELECT COUNT (*) as PreCount FROM STAGING.Decision
 
 ------------EDW Decision
 USE TescaEDW
@@ -523,6 +532,8 @@ CREATE Table EDW.DimDecision
 	EffectiveDate datetime,
 	constraint edw_dimdecision_sk primary key (decisionsk)
 )
+--Rename column name
+exec sp_rename 'EDW.DimDecision.EffectiveDate', 'EffectiveStartDate'
 
 select count(*) PreCount from EDW.DimDecision
 SELECT Count(*) PostCount from EDW.DimDecision
@@ -540,14 +551,22 @@ CREATE TABLE Staging.Absence
 	LoadDate datetime default getdate()
 )
 
-
-
 select count (*) as descount from staging.absence
 truncate table staging.absense
 
 ------EDW ABSENSE 
+
+With Absence_CTE as (
 SELECT Categoryid, category from staging.absence
 group by categoryid, category
+)
+SELECT Categoryid, category, getdate() as EffectiveStartDate from Absence_CTE
+
+With Absence_CTE as (
+SELECT Categoryid, category from staging.absence
+group by categoryid, category
+)
+SELECT COUNT(*) CurrentCount from Absence_CTE
 
 select count(*) as currentcount from staging.absence
 group by categoryid, category
@@ -562,6 +581,13 @@ CREATE TABLE EDW.DimAbsence (
 	)
 
 	select count(*) as PreCount from EDW.DIMABSENCE
+	select count(*) as PostCount from EDW.DIMABSENCE
+
+	--Rename column name
+exec sp_rename 'EDW.DimAbsence.EffectiveDate', 'EffectiveStartDate'
+
+SELECT * FROM EDW.DimAbsence
+select * from staging.Absence
 
 
 
